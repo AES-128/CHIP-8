@@ -102,7 +102,18 @@ class CPU:
 			self.registers[0xF] = int(self.registers[x] > self.registers[y])
 			self.registers[x] -= self.registers[y]
 			self.registers[x] %= 256
-			
+		elif n == 6:
+			self.registers[x] = self.registers[y] # for different programs, this line may need to remain in or out
+			self.registers[0xF] = self.registers[x] & 1
+			self.registers[x] >>= 1
+		elif n == 7:
+			self.registers[0xF] = int(self.registers[y] > self.registers[x])
+			self.registers[x] = self.registers[y] - self.registers[x]
+			self.registers[x] %= 256
+		elif n == 0xE:
+			self.registers[x] = self.registers[y] # for different programs, this line may need to remain in or out
+			self.registers[0xF] = self.registers[x] & 0b1000000000000000
+			self.registers[x] <<= 1
 
 	def _9XY0_SKIP(self): # Skip if registers[x] != registers[y]
 		x = self.get_nth_bit(2)
