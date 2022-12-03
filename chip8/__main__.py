@@ -8,4 +8,5 @@ if len(sys.argv) != 2:
 cpu = CPU()
 
 cpu.load_rom(sys.argv[1])
-print(cpu.memory)
+while True:
+	cpu.FDE()
