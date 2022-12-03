@@ -35,8 +35,14 @@ class CPU:
 			0x3		:	self._3XKK_SKIP,
 			0x4		:	self._4XKK_SKIP,
 			0x5		:	self._5XY0_SKIP,
+			0x6		:	self._6XKK_LOAD,
+			0x7		:	self._7XKK_ADD,
+			0x8		:	self._8XYN_ALU,
 			0x9		:	self._9XY0_SKIP,
 		}
+
+	def get_nth_bit(self, n):
+		return (self.current_opcode >> 4 * (4 - n)) & 0xF
 
 	def _00E0_CLEAR(self):
 		self.video_mem = dd(lambda: 0)
@@ -52,27 +58,55 @@ class CPU:
 		self.pc = self.current_opcode & 0xFFF
 
 	def _3XKK_SKIP(self): # Skip if registers[x] == kk
-		x = (self.current_opcode >> 8) & 0xF
+		x = self.get_nth_bit(2)
 	
 		if self.registers[x] == self.current_opcode & 0xFF:
 			self.pc += 2
 
 	def _4XKK_SKIP(self): # Skip if registers[x] != kk
-		x = (self.current_opcode >> 8) & 0xF
+		x = self.get_nth_bit(2)
 	
 		if self.registers[x] != self.current_opcode & 0xFF:
 			self.pc += 2
 
 	def _5XY0_SKIP(self): # Skip if registers[x] == registers[y]
-		x = (self.current_opcode >> 8) & 0xF
-		y = (self.current_opcode >> 4) & 0xF
+		x = self.get_nth_bit(2)
+		y = self.get_nth_bit(3)
 
 		if self.registers[x] == self.registers[y]:
 			self.pc += 2
 
+	def _6XKK_LOAD(self):
+		x = self.get_nth_bit(2)
+		self.registers[x] = self.current_opcode & 0xFF
+
+	def _7XKK_ADD(self):
+		x = self.get_nth_bit(2)
+		self.registers[x] += self.current_opcode & 0xFF
+		self.registers[x] %= 256 # emulate overflow (registers are only 8 bits)
+
+	def _8XYN_ALU(self):
+		x = self.get_nth_bit(2)
+		y = self.get_nth_bit(3)
+		n = self.get_nth_bit(4)
+
+		if n == 0:		self.registers[x] = self.registers[y]
+		elif n == 1:	self.registers[x] |= self.registers[y]
+		elif n == 2:	self.registers[x] &= self.registers[y]
+		elif n == 3:	self.registers[x] ^= self.registers[y]
+		elif n == 4:	# Another ADD instruction, but it affects the flag register
+			self.registers[x] += self.registers[y]
+			carry, self.registers[x] = divmod(self.registers[x], 256)
+			self.registers[0xF] = int(bool(carry)) # Returns 0 if there is no overflow, else it returns 1
+		elif n == 5:
+			self.registers[0xF] = int(self.registers[x] > self.registers[y])
+			self.registers[x] -= self.registers[y]
+			self.registers[x] %= 256
+			
+
 	def _9XY0_SKIP(self): # Skip if registers[x] != registers[y]
-		x = (self.current_opcode >> 8) & 0xF
-		y = (self.current_opcode >> 4) & 0xF
+		x = self.get_nth_bit(2)
+		y = self.get_nth_bit(3)
 
 		if self.registers[x] != self.registers[y]:
 			self.pc += 2
@@ -89,7 +123,7 @@ class CPU:
 
 		first_byte = self.current_opcode >> 12
 
-		if first_byte in [*range(1, 8), range(0xA, 0xE)]:
+		if first_byte in [*range(1, 0xE)]:
 			return first_byte
 
 	def FDE(self):
