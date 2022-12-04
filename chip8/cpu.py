@@ -145,7 +145,6 @@ class CPU:
 		y = self.get_nth_bit(3)
 		n = self.get_nth_bit(4)
 
-		sprite = self.memory[self.index: self.index + n]
 		dx = self.registers[x] # take modulus so that sprite can wrap across edge
 		dy = self.registers[y]
 		self.registers[0xF] = 0
