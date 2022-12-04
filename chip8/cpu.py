@@ -136,7 +136,7 @@ class CPU:
 
 	def _CXKK_RAND(self):
 		x = self.get_nth_bit(2)
-		self.registers[x] = randint(0, 256) & self.opcode & 0xFF
+		self.registers[x] = randint(0, 256) & self.current_opcode & 0xFF
 
 	def _DXYN_DRAW(self):
 		# Sprites are composed of rows of bytes
