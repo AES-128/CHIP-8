@@ -1,4 +1,4 @@
-run = "python3 main.py"
+run = "pypy3 chip8 test_opcode.ch8"
 
 # The primary language of the repl. There can be others, though!
 language = "python3"

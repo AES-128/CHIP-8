@@ -1,6 +1,5 @@
 from collections import defaultdict as dd
 from random import randint
-from time import sleep
 
 # Memory Map:
 # +---------------+= 0xFFF (4095) End of Chip-8 RAM
@@ -19,6 +18,10 @@ from time import sleep
 # |  interpreter  |
 # +---------------+= 0x000 (0) Start of Chip-8 RAM
 
+DEBUG = True
+
+if DEBUG:
+	log_file = open("log.out", "w+")
 
 class CPU:
 	def __init__(self, start_address = 0x200):
@@ -29,6 +32,7 @@ class CPU:
 		self.stack = []
 		self.current_opcode = 0
 		self.video_memory = dd(lambda: 0)
+		self.prev_video_memory = dd(lambda: 0)
 		self.table = {
 			0xE0	:	self._00E0_CLEAR,
 			0xEE	:	self._00EE_RETURN,
@@ -140,6 +144,7 @@ class CPU:
 
 	def _DXYN_DRAW(self):
 		# Sprites are composed of rows of bytes
+		self.prev_video_memory = self.video_memory.copy()
 
 		x = self.get_nth_bit(2)
 		y = self.get_nth_bit(3)
@@ -180,14 +185,5 @@ class CPU:
 
 		if instruction:
 			instruction()
-
-		for y in range(32):
-			for x in range(64):
-				if self.video_memory[(y, x)]:
-					print("██", end = "")
-				else:
-					print("  ", end = "")
-			print()
-	
-		print("\033[H")
-		sleep(0.1)
+		elif DEBUG:
+			log_file.write(f"Instruction {self.current_opcode} not implemented")
