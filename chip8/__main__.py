@@ -9,4 +9,5 @@ cpu = CPU()
 
 cpu.load_rom(sys.argv[1])
 while True:
+	print("\033[?25l") # hide cursor
 	cpu.FDE()

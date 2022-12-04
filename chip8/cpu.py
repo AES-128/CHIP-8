@@ -1,4 +1,6 @@
 from collections import defaultdict as dd
+from random import randint
+from time import sleep
 
 # Memory Map:
 # +---------------+= 0xFFF (4095) End of Chip-8 RAM
@@ -26,7 +28,7 @@ class CPU:
 		self.memory = [0] * 4096
 		self.stack = []
 		self.current_opcode = 0
-		self.video_mem = dd(lambda: 0)
+		self.video_memory = dd(lambda: 0)
 		self.table = {
 			0xE0	:	self._00E0_CLEAR,
 			0xEE	:	self._00EE_RETURN,
@@ -39,13 +41,17 @@ class CPU:
 			0x7		:	self._7XKK_ADD,
 			0x8		:	self._8XYN_ALU,
 			0x9		:	self._9XY0_SKIP,
+			0xA		:	self._ANNN_LOAD,
+			0xB		:	self._BNNN_JUMP,
+			0xC		:	self._CXKK_RAND,
+			0xD		:	self._DXYN_DRAW,
 		}
 
 	def get_nth_bit(self, n):
 		return (self.current_opcode >> 4 * (4 - n)) & 0xF
 
 	def _00E0_CLEAR(self):
-		self.video_mem = dd(lambda: 0)
+		self.video_memory = dd(lambda: 0)
 
 	def _00EE_RETURN(self):
 		self.pc = self.stack.pop()
@@ -122,6 +128,37 @@ class CPU:
 		if self.registers[x] != self.registers[y]:
 			self.pc += 2
 
+	def _ANNN_LOAD(self):
+		self.index = self.current_opcode & 0xFFF
+
+	def _BNNN_JUMP(self):
+		self.pc = self.registers[0] + self.current_opcode & 0xFFF
+
+	def _CXKK_RAND(self):
+		x = self.get_nth_bit(2)
+		self.registers[x] = randint(0, 256) & self.opcode & 0xFF
+
+	def _DXYN_DRAW(self):
+		# Sprites are composed of rows of bytes
+
+		x = self.get_nth_bit(2)
+		y = self.get_nth_bit(3)
+		n = self.get_nth_bit(4)
+
+		sprite = self.memory[self.index: self.index + n]
+		dx = self.registers[x] # take modulus so that sprite can wrap across edge
+		dy = self.registers[y]
+		self.registers[0xF] = 0
+
+		for row in range(n):
+			sprite_byte = self.memory[self.index + row]
+
+			for column in range(8):
+				sprite_pixel = sprite_byte & (0x80 >> column)
+				screen_pixel = self.video_memory[(dy + row, dx + column)]
+				self.video_memory[(dy + row, dx + column)] = sprite_pixel
+				self.registers[0xF] = screen_pixel # collision
+
 
 	def load_rom(self, rom_path): # ROM is loaded at 0x200 (most of the time)
 		with open(rom_path, "rb") as rom_bytes:
@@ -139,8 +176,19 @@ class CPU:
 
 	def FDE(self):
 		self.current_opcode = (self.memory[self.pc] << 8) + self.memory[self.pc + 1]
-		input(self.current_opcode)
 		self.pc += 2
-		# f = self.table[self.get_func()]
-		# print(f)
-		# f()
+		instruction = self.table.get(self.get_func())
+
+		if instruction:
+			instruction()
+
+		for y in range(32):
+			for x in range(64):
+				if self.video_memory[(y, x)]:
+					print("██", end = "")
+				else:
+					print("  ", end = "")
+			print()
+	
+		print("\033[H")
+		sleep(0.1)
