@@ -23,11 +23,33 @@ DEBUG = True
 if DEBUG:
 	log_file = open("log.out", "w+")
 
+FONT_START_ADDR = 0x50
+font = [
+	0xF0, 0x90, 0x90, 0x90, 0xF0, # 0
+	0x20, 0x60, 0x20, 0x20, 0x70, # 1
+	0xF0, 0x10, 0xF0, 0x80, 0xF0, # 2
+	0xF0, 0x10, 0xF0, 0x10, 0xF0, # 3
+	0x90, 0x90, 0xF0, 0x10, 0x10, # 4
+	0xF0, 0x80, 0xF0, 0x10, 0xF0, # 5
+	0xF0, 0x80, 0xF0, 0x90, 0xF0, # 6
+	0xF0, 0x10, 0x20, 0x40, 0x40, # 7
+	0xF0, 0x90, 0xF0, 0x90, 0xF0, # 8
+	0xF0, 0x90, 0xF0, 0x10, 0xF0, # 9
+	0xF0, 0x90, 0xF0, 0x90, 0x90, # A
+	0xE0, 0x90, 0xE0, 0x90, 0xE0, # B
+	0xF0, 0x80, 0x80, 0x80, 0xF0, # C
+	0xE0, 0x90, 0x90, 0x90, 0xE0, # D
+	0xF0, 0x80, 0xF0, 0x80, 0xF0, # E
+	0xF0, 0x80, 0xF0, 0x80, 0x80  # F
+]
+
 class CPU:
 	def __init__(self, start_address = 0x200):
 		self.registers = [0] * 16 # Sixteen 8-bit general purpose registers from [R0 to RF] (RF is a flag register)
 		self.index = 0 # 16-bit
 		self.pc = start_address # 16-bit
+		self.delay_timer = 0
+		self.sound_timer = 0
 		self.memory = [0] * 4096
 		self.stack = []
 		self.current_opcode = 0
@@ -49,7 +71,20 @@ class CPU:
 			0xB		:	self._BNNN_JUMP,
 			0xC		:	self._CXKK_RAND,
 			0xD		:	self._DXYN_DRAW,
+			0xE		:	self._EXKK_KEY,
+			0xF		:	self._FXKK_TIMER,
+			0x1E	:	self._FX1E_ADD,
+			0x29	:	self._FX29_LD,
+			0x55	:	self._FX55_LD,
+			0x33	:	self._FX33_BCD,
+			0x65	:	self._FX65_LD,
 		}
+		self.current_key = None
+		self.load_fonts()
+
+	def load_fonts(self):
+		for idx in range(len(font)):
+			self.memory[FONT_START_ADDR + idx] = font[idx]
 
 	def get_nth_bit(self, n):
 		return (self.current_opcode >> 4 * (4 - n)) & 0xF
@@ -163,6 +198,47 @@ class CPU:
 				self.video_memory[(dy + row, dx + column)] = sprite_pixel
 				self.registers[0xF] = screen_pixel # collision
 
+	def _EXKK_KEY(self):
+		x = self.get_nth_bit(2)
+		kk = self.current_opcode & 0xFF
+		cond = 1 if kk == 0x9E else 0 # oof
+
+		if cond * (self.current_key == self.registers[x]):
+			pc += 2
+
+	def _FXKK_TIMER(self):
+		x = self.get_nth_bit(2)
+		kk = self.current_opcode & 0xFF
+
+		if kk == 0x07:
+			self.registers[x] = self.delay_timer
+		elif kk == 0x15:
+			self.delay_timer = self.registers[x]
+		elif kk == 0x18:
+			self.sound_timer = self.registers[x]
+
+	def _FX1E_ADD(self):
+		self.index += self.registers[self.get_nth_bit(2)]
+		
+	def _FX33_BCD(self):
+		x = self.get_nth_bit(2)
+		bin_val = self.registers[x]
+
+		for idx in range(2, -1, -1):
+			bin_val, digit = divmod(bin_val, 10)
+			self.memory[self.index + idx] = digit
+
+	def _FX55_LD(self):
+		x = self.get_nth_bit(2)
+
+		for idx in range(x + 1):
+			self.memory[self.index + idx] = self.registers[idx]
+
+	def _FX65_LD(self):
+		x = self.get_nth_bit(2)
+
+		for idx in range(x + 1):
+			self.registers[idx] = self.memory[self.index + idx]
 
 	def load_rom(self, rom_path): # ROM is loaded at 0x200 (most of the time)
 		with open(rom_path, "rb") as rom_bytes:
@@ -178,12 +254,21 @@ class CPU:
 		if first_byte in [*range(1, 0xE)]:
 			return first_byte
 
+		else:
+			return self.current_opcode & 0xFF
+	
+	def _FX29_LD(self):
+		x = self.get_nth_bit(2)
+		self.index = FONT_START_ADDR + 5 * self.registers[x]
+
 	def FDE(self):
 		self.current_opcode = (self.memory[self.pc] << 8) + self.memory[self.pc + 1]
 		self.pc += 2
 		instruction = self.table.get(self.get_func())
+		if self.delay_timer: self.delay_timer -= 1
+		if self.sound_timer: self.sound_timer -= 1
 
 		if instruction:
 			instruction()
 		elif DEBUG:
-			log_file.write(f"Instruction {self.current_opcode} not implemented")
+			log_file.write(f"Instruction {hex(self.current_opcode)} not implemented\n")
