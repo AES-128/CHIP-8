@@ -1,6 +1,7 @@
 from cpu import CPU
-from chip_io import draw_to_screen, kill_screen, get_key
+from chip_io import draw_to_screen, update_keypad_state, tick_clock
 import sys
+from random import random
 
 def get_diff(d1, d2):
 	return list(k for k in d1.keys() | d2.keys() if d2.get(k) != d1.get(k))
@@ -16,9 +17,12 @@ cpu.load_rom(sys.argv[1])
 try:
 	while True:
 		cpu.FDE()
-		draw_to_screen(cpu.prev_video_memory, cpu.video_memory)
-		cpu.current_key = get_key() # high cpu usage, need to somehow add a delay (so may need to be on a seperate thread)
+
+		if (diff := get_diff(cpu.prev_video_memory, cpu.video_memory)):
+			draw_to_screen(cpu.video_memory, diff)
+			cpu.prev_video_memory = cpu.video_memory.copy()
+		
+		tick_clock()
+
 except KeyboardInterrupt:
 	pass
-
-kill_screen()

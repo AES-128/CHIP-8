@@ -1,38 +1,50 @@
-import curses
-from time import sleep
+import pygame
 
-def get_diff(d1, d2):
-	return (k for k in d1.keys() | d2.keys() if d2.get(k) != d1.get(k))
+pygame.init()
+clock = pygame.time.Clock()
 
-screen = curses.initscr()
-screen.nodelay(1) # getch becayse non-blocking
-curses.curs_set(0)
-curses.noecho()
+scale = 15
+width, height = 64 * scale, 32 * scale
+screen = pygame.display.set_mode((width, height))
+
+keypad_map = {
+    pygame.K_1: 0x1,
+    pygame.K_2: 0x2,
+    pygame.K_3: 0x3,
+    pygame.K_4: 0xC,
+    pygame.K_q: 0x4,
+    pygame.K_w: 0x5,
+    pygame.K_e: 0x6,
+    pygame.K_r: 0xD,
+    pygame.K_a: 0x7,
+    pygame.K_s: 0x8,
+    pygame.K_d: 0x9,
+    pygame.K_f: 0xE,
+    pygame.K_z: 0xA,
+    pygame.K_x: 0x0,
+    pygame.K_c: 0xB,
+    pygame.K_v: 0xF,
+}
+
+def update_keypad_state(keypad_state):
+    for event in pygame.event.get():
+        if event.type == pygame.KEYDOWN and event.key in keypad_map:
+            key_index = keypad_map[event.key]
+            keypad_state[key_index] = True
+        elif event.type == pygame.KEYUP and event.key in keypad_map:
+            key_index = keypad_map[event.key]
+            keypad_state[key_index] = False
 
 
-# 1 2 3 C -> 1 2 3 4
-# 4 5 6 D -> Q W E R
-# 7 8 9 E -> A S D F
-# A 0 B F -> \ Z X C
+def draw_to_screen(video_memory, diff):
+	for y, x in diff:
+		if video_memory[(y, x)]:
+			pygame.draw.rect(screen, (255, 255, 255), (x * scale, y * scale, scale, scale))
+		else:
+			pygame.draw.rect(screen, (0, 0, 0), (x * scale, y * scale, scale, scale))
 
-keypad_map = {ord(char): idx for idx, char in enumerate("1234QWERASDF\\ZXC")}
+	pygame.display.flip()
 
-def get_key():
-	try:
-		return keypad_map.get(screen.getch())
-	except curses.error:
-		return None
 
-def draw_to_screen(prev, video_memory):
-	for y, x in get_diff(prev, video_memory):
-		c = "██" if video_memory[(y, x)] else "  "
-		screen.addstr(y, x * 2, c)
-
-	screen.refresh()
-
-def kill_screen():
-	curses.curs_set(1)
-	curses.nocbreak()
-	screen.keypad(0)
-	curses.echo()
-	curses.endwin()
+def tick_clock():
+    clock.tick(400)

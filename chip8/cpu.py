@@ -1,5 +1,6 @@
 from collections import defaultdict as dd
 from random import randint
+from chip_io import update_keypad_state
 
 # Memory Map:
 # +---------------+= 0xFFF (4095) End of Chip-8 RAM
@@ -24,6 +25,7 @@ if DEBUG:
 	log_file = open("log.out", "w+")
 
 FONT_START_ADDR = 0x50
+
 font = [
 	0xF0, 0x90, 0x90, 0x90, 0xF0, # 0
 	0x20, 0x60, 0x20, 0x20, 0x70, # 1
@@ -73,13 +75,9 @@ class CPU:
 			0xD		:	self._DXYN_DRAW,
 			0xE		:	self._EXKK_KEY,
 			0xF		:	self._FXKK_TIMER,
-			0x1E	:	self._FX1E_ADD,
-			0x29	:	self._FX29_LD,
-			0x55	:	self._FX55_LD,
-			0x33	:	self._FX33_BCD,
-			0x65	:	self._FX65_LD,
 		}
-		self.current_key = None
+
+		self.keypad_state = [False] * 16
 		self.load_fonts()
 
 	def load_fonts(self):
@@ -183,28 +181,35 @@ class CPU:
 
 		x = self.get_nth_bit(2)
 		y = self.get_nth_bit(3)
-		n = self.get_nth_bit(4)
+		height = self.get_nth_bit(4)
 
 		dx = self.registers[x] # take modulus so that sprite can wrap across edge
 		dy = self.registers[y]
 		self.registers[0xF] = 0
 
-		for row in range(n):
+		for row in range(height):
 			sprite_byte = self.memory[self.index + row]
 
-			for column in range(8):
-				sprite_pixel = sprite_byte & (0x80 >> column)
-				screen_pixel = self.video_memory[(dy + row, dx + column)]
-				self.video_memory[(dy + row, dx + column)] = sprite_pixel
-				self.registers[0xF] = screen_pixel # collision
+			for col in range(8):
+				sprite_pixel = sprite_byte & (0x80 >> col)
+				pixel_addr = (dy + row, dx + col)			
+
+				if sprite_pixel:
+					if self.video_memory[pixel_addr]:
+						self.registers[0xF] = 1 # collision
+					
+					self.video_memory[(dy + row, dx + col)] ^= 0xFF
 
 	def _EXKK_KEY(self):
 		x = self.get_nth_bit(2)
 		kk = self.current_opcode & 0xFF
-		cond = 1 if kk == 0x9E else 0 # oof
 
-		if cond * (self.current_key == self.registers[x]):
-			pc += 2
+		if kk == 0x9E:
+			if self.keypad_state[self.registers[x]]:
+				self.pc += 2
+		elif kk == 0xA1:
+			if not self.keypad_state[self.registers[x]]:
+				self.pc += 2
 
 	def _FXKK_TIMER(self):
 		x = self.get_nth_bit(2)
@@ -212,33 +217,38 @@ class CPU:
 
 		if kk == 0x07:
 			self.registers[x] = self.delay_timer
+		elif kk == 0x0A:
+			key_pressed = False
+
+			for idx in range(16):
+				if self.keypad_state[idx]:
+					self.registers[x] = idx
+					key_pressed = True
+					break
+
+			if not key_pressed:
+				self.pc -= 2
+
 		elif kk == 0x15:
 			self.delay_timer = self.registers[x]
 		elif kk == 0x18:
 			self.sound_timer = self.registers[x]
+		elif kk == 0x1E:
+			self.index += self.registers[x]
+		elif kk == 0x29:
+			self.index = FONT_START_ADDR + 5 * self.registers[x]
+		elif kk == 0x33:
+			bin_val = self.registers[x]
 
-	def _FX1E_ADD(self):
-		self.index += self.registers[self.get_nth_bit(2)]
-		
-	def _FX33_BCD(self):
-		x = self.get_nth_bit(2)
-		bin_val = self.registers[x]
-
-		for idx in range(2, -1, -1):
-			bin_val, digit = divmod(bin_val, 10)
-			self.memory[self.index + idx] = digit
-
-	def _FX55_LD(self):
-		x = self.get_nth_bit(2)
-
-		for idx in range(x + 1):
-			self.memory[self.index + idx] = self.registers[idx]
-
-	def _FX65_LD(self):
-		x = self.get_nth_bit(2)
-
-		for idx in range(x + 1):
-			self.registers[idx] = self.memory[self.index + idx]
+			for idx in range(2, -1, -1):
+				bin_val, digit = divmod(bin_val, 10)
+				self.memory[self.index + idx] = digit
+		elif kk == 0x55:
+			for idx in range(x + 1):
+				self.memory[self.index + idx] = self.registers[idx]
+		elif kk == 0x65:
+			for idx in range(x + 1):
+				self.registers[idx] = self.memory[self.index + idx]
 
 	def load_rom(self, rom_path): # ROM is loaded at 0x200 (most of the time)
 		with open(rom_path, "rb") as rom_bytes:
@@ -251,24 +261,19 @@ class CPU:
 
 		first_byte = self.current_opcode >> 12
 
-		if first_byte in [*range(1, 0xE)]:
-			return first_byte
-
-		else:
-			return self.current_opcode & 0xFF
-	
-	def _FX29_LD(self):
-		x = self.get_nth_bit(2)
-		self.index = FONT_START_ADDR + 5 * self.registers[x]
+		return first_byte
 
 	def FDE(self):
+		update_keypad_state(self.keypad_state)
 		self.current_opcode = (self.memory[self.pc] << 8) + self.memory[self.pc + 1]
 		self.pc += 2
+
 		instruction = self.table.get(self.get_func())
 		if self.delay_timer: self.delay_timer -= 1
 		if self.sound_timer: self.sound_timer -= 1
 
 		if instruction:
 			instruction()
+			# print(f"Instruction {hex(self.current_opcode)}, {instruction.__name__}")
 		elif DEBUG:
 			log_file.write(f"Instruction {hex(self.current_opcode)} not implemented\n")
